@@ -47,9 +47,14 @@ All the actual frame generation work is [PancakeTAS/lsfg-vk](https://github.com/
 
 Made while getting [SteamOS running on the Pocket FIT](https://github.com/hashtagbasit/SteamOS-ARM-SM8650).
 
-## Support
+## Supporting the project
 
-If this helped you out and you want to say thanks, you can donate here: [paypal.me/Basit2000](https://paypal.me/Basit2000). Much appreciated!
+If this got frame gen working on your handheld and you want to say thanks, a coffee really helps.
+
+<p align="left">
+  <a href="https://ko-fi.com/aimalb"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=for-the-badge&logo=kofi&logoColor=white" alt="Ko-fi"></a>
+  <a href="https://paypal.me/Basit2000"><img src="https://img.shields.io/badge/PayPal-Basit2000-00457c?style=for-the-badge&logo=paypal&logoColor=white" alt="PayPal"></a>
+</p>
 
 ## License
 
