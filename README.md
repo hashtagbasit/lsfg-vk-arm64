@@ -6,6 +6,8 @@ The [decky-lsfg-vk](https://github.com/xXJSONDeruloXx/decky-lsfg-vk) plugin only
 
 Tested on SteamOS ARM on a KONKR Pocket FIT (Snapdragon 8 Gen 3) with Dying Light, but it should work on any aarch64 Linux with Vulkan.
 
+This is a pretty big deal for ARM handhelds. These chips can run a lot of PC games now, but usually somewhere around 30-45fps. With frame gen on top that becomes 60-90fps on screen, which makes a huge difference to how smooth games feel on a small handheld, and until now it just didn't work on ARM Linux at all.
+
 ## What's fixed
 
 - Built for aarch64, matching the lsfg-vk version the Decky plugin uses (`fp16-test-2`), so it reads the same config.
@@ -45,6 +47,10 @@ All the actual frame generation work is [PancakeTAS/lsfg-vk](https://github.com/
 
 Made while getting [SteamOS running on the Pocket FIT](https://github.com/hashtagbasit/SteamOS-ARM-SM8650).
 
-If it helped you: [paypal.me/Basit2000](https://paypal.me/Basit2000)
+## Support
+
+If this helped you out and you want to say thanks, you can donate here: [paypal.me/Basit2000](https://paypal.me/Basit2000). Much appreciated!
+
+## License
 
 MIT, same as lsfg-vk.
