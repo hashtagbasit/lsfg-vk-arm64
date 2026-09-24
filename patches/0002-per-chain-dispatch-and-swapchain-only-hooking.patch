@@ -1,0 +1,160 @@
+diff --git a/src/layer.cpp b/src/layer.cpp
+index 9c2694b..fbde951 100644
+--- a/src/layer.cpp
++++ b/src/layer.cpp
+@@ -7,6 +7,8 @@
+ #include <vulkan/vulkan_core.h>
+ 
+ #include <unordered_map>
++#include <mutex>
++#include <cstring>
+ #include <exception>
+ #include <iostream>
+ #include <cstdint>
+@@ -55,6 +57,23 @@ namespace {
+     PFN_vkCmdBlitImage next_vkCmdBlitImage{};
+     PFN_vkAcquireNextImageKHR next_vkAcquireNextImageKHR{};
+ 
++    // per-chain dispatch (keyed by the loader dispatch pointer of the handle)
++    std::mutex dispatchMutex;
++    std::unordered_map<void*, PFN_vkGetInstanceProcAddr> instanceGipa;
++    std::unordered_map<void*, PFN_vkGetDeviceProcAddr> deviceGdpa;
++    std::unordered_map<void*, bool> deviceHooked;
++
++    void* dispatchKey(const void* handle) {
++        return handle ? *reinterpret_cast<void* const*>(handle) : nullptr;
++    }
++
++    bool hasExtension(const VkDeviceCreateInfo* info, const char* name) {
++        for (uint32_t i = 0; i < info->enabledExtensionCount; i++)
++            if (std::strcmp(info->ppEnabledExtensionNames[i], name) == 0)
++                return true;
++        return false;
++    }
++
+     template<typename T>
+     bool initInstanceFunc(VkInstance instance, const char* name, T* func) {
+         *func = reinterpret_cast<T>(next_vkGetInstanceProcAddr(instance, name));
+@@ -94,7 +113,8 @@ namespace {
+                 throw LSFG::vulkan_error(VK_ERROR_INITIALIZATION_FAILED,
+                     "No layer creation info found in pNext chain");
+ 
+-            next_vkGetInstanceProcAddr = layerDesc->u.pLayerInfo->pfnNextGetInstanceProcAddr;
++            const PFN_vkGetInstanceProcAddr chainGipa = layerDesc->u.pLayerInfo->pfnNextGetInstanceProcAddr;
++            next_vkGetInstanceProcAddr = chainGipa;
+             layerDesc->u.pLayerInfo = layerDesc->u.pLayerInfo->pNext;
+ 
+             bool success = initInstanceFunc(nullptr, "vkCreateInstance", &next_vkCreateInstance);
+@@ -105,7 +125,10 @@ namespace {
+             // NOLINTEND | skip initialization if the layer is disabled
+             if (!Config::activeConf.enable) {
+                 auto res = next_vkCreateInstance(pCreateInfo, pAllocator, pInstance);
+-                initInstanceFunc(*pInstance, "vkCreateDevice", &next_vkCreateDevice);
++                if (res == VK_SUCCESS) {
++                    std::lock_guard<std::mutex> lock(dispatchMutex);
++                    instanceGipa[dispatchKey(*pInstance)] = chainGipa;
++                }
+                 return res;
+             }
+ 
+@@ -116,6 +139,8 @@ namespace {
+                 auto res = createInstanceHook(pCreateInfo, pAllocator, pInstance);
+                 if (res != VK_SUCCESS)
+                     throw LSFG::vulkan_error(res, "Unknown error");
++                std::lock_guard<std::mutex> lock(dispatchMutex);
++                instanceGipa[dispatchKey(*pInstance)] = chainGipa;
+             } catch (const std::exception& e) {
+                 throw LSFG::rethrowable_error("Failed to create Vulkan instance", e);
+             }
+@@ -165,8 +190,14 @@ namespace {
+                 throw LSFG::vulkan_error(VK_ERROR_INITIALIZATION_FAILED,
+                     "No layer creation info found in pNext chain");
+ 
+-            next_vkGetDeviceProcAddr = layerDesc->u.pLayerInfo->pfnNextGetDeviceProcAddr;
++            const PFN_vkGetDeviceProcAddr chainGdpa = layerDesc->u.pLayerInfo->pfnNextGetDeviceProcAddr;
++            const PFN_vkGetInstanceProcAddr chainGipa = layerDesc->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+             layerDesc->u.pLayerInfo = layerDesc->u.pLayerInfo->pNext;
++            const auto chainCreateDevice = reinterpret_cast<PFN_vkCreateDevice>(
++                chainGipa(nullptr, "vkCreateDevice"));
++            if (!chainCreateDevice)
++                throw LSFG::vulkan_error(VK_ERROR_INITIALIZATION_FAILED,
++                    "No vkCreateDevice in the next layer");
+ 
+             auto* layerDesc2 = const_cast<VkLayerDeviceCreateInfo*>(
+                 reinterpret_cast<const VkLayerDeviceCreateInfo*>(pCreateInfo->pNext));
+@@ -181,9 +212,19 @@ namespace {
+ 
+             next_vSetDeviceLoaderData = layerDesc2->u.pfnSetDeviceLoaderData;
+ 
+-            // NOLINTEND | skip initialization if the layer is disabled
+-            if (!Config::activeConf.enable)
+-                return next_vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
++            // NOLINTEND | pass through if the layer is disabled, or for devices that
++            // cannot present (compute/query devices): only swapchain devices are hooked
++            if (!Config::activeConf.enable || !hasExtension(pCreateInfo, "VK_KHR_swapchain")) {
++                auto res = chainCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
++                if (res == VK_SUCCESS) {
++                    std::lock_guard<std::mutex> lock(dispatchMutex);
++                    deviceGdpa[dispatchKey(*pDevice)] = chainGdpa;
++                    deviceHooked[dispatchKey(*pDevice)] = false;
++                }
++                return res;
++            }
++            next_vkGetDeviceProcAddr = chainGdpa;
++            next_vkCreateDevice = chainCreateDevice;
+ 
+             // create device
+             try {
+@@ -234,6 +275,11 @@ namespace {
+             if (res != VK_SUCCESS)
+                 throw LSFG::vulkan_error(res, "Unknown error");
+ 
++            {
++                std::lock_guard<std::mutex> lock(dispatchMutex);
++                deviceGdpa[dispatchKey(*pDevice)] = chainGdpa;
++                deviceHooked[dispatchKey(*pDevice)] = true;
++            }
+             std::cerr << "lsfg-vk: Vulkan device layer initialized successfully.\n";
+         } catch (const std::exception& e) {
+             std::cerr << "lsfg-vk: An error occurred while initializing the Vulkan device layer:\n";
+@@ -265,7 +311,14 @@ PFN_vkVoidFunction layer_vkGetInstanceProcAddr(VkInstance instance, const char*
+     if (it != Hooks::hooks.end() && Config::activeConf.enable)
+         return it->second;
+ 
+-    return next_vkGetInstanceProcAddr(instance, pName);
++    PFN_vkGetInstanceProcAddr gipa = next_vkGetInstanceProcAddr;
++    if (instance) {
++        std::lock_guard<std::mutex> lock(dispatchMutex);
++        auto found = instanceGipa.find(dispatchKey(instance));
++        if (found != instanceGipa.end())
++            gipa = found->second;
++    }
++    return gipa ? gipa(instance, pName) : nullptr;
+ }
+ 
+ PFN_vkVoidFunction layer_vkGetDeviceProcAddr(VkDevice device, const char* pName) {
+@@ -274,11 +327,22 @@ PFN_vkVoidFunction layer_vkGetDeviceProcAddr(VkDevice device, const char* pName)
+     if (it != layerFunctions.end())
+         return it->second;
+ 
++    PFN_vkGetDeviceProcAddr gdpa = next_vkGetDeviceProcAddr;
++    bool hooked = true;
++    if (device) {
++        std::lock_guard<std::mutex> lock(dispatchMutex);
++        auto found = deviceGdpa.find(dispatchKey(device));
++        if (found != deviceGdpa.end()) {
++            gdpa = found->second;
++            hooked = deviceHooked[dispatchKey(device)];
++        }
++    }
++
+     it = Hooks::hooks.find(name);
+-    if (it != Hooks::hooks.end() && Config::activeConf.enable)
++    if (it != Hooks::hooks.end() && Config::activeConf.enable && hooked)
+         return it->second;
+ 
+-    return next_vkGetDeviceProcAddr(device, pName);
++    return gdpa ? gdpa(device, pName) : nullptr;
+ }
+ 
+ // original functions
