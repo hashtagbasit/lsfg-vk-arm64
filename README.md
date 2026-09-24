@@ -2,15 +2,20 @@
 
 Lossless Scaling frame generation on ARM Linux handhelds. This is [lsfg-vk](https://github.com/PancakeTAS/lsfg-vk) built for aarch64, with a couple of fixes so it actually works with Proton ARM64 games.
 
-The [decky-lsfg-vk](https://github.com/xXJSONDeruloXx/decky-lsfg-vk) plugin only comes with an x86 build of the layer, so on ARM it just silently does nothing. And if you build it yourself, Proton ARM64 games get stuck on "launching" forever. This fixes both.
+The [decky-lsfg-vk](https://github.com/xXJSONDeruloXx/decky-lsfg-vk) plugin only ships x86 builds of the layer, so on ARM it silently does nothing. And a plain ARM build makes Proton ARM64 games get stuck on "launching" forever. This is a drop-in ARM64 layer for the plugin that fixes both.
 
 Tested on SteamOS ARM on a KONKR Pocket FIT (Snapdragon 8 Gen 3) with Dying Light, but it should work on any aarch64 Linux with Vulkan.
 
-This is a pretty big deal for ARM handhelds. These chips can run a lot of PC games now, but usually somewhere around 30-45fps. With frame gen on top that becomes 60-90fps on screen, which makes a huge difference to how smooth games feel on a small handheld, and until now it just didn't work on ARM Linux at all.
+Frame gen makes a real difference on ARM handhelds. A lot of PC games run around 30-45fps on these chips, and with frame gen that becomes 60-90fps on screen, which feels way smoother on a small screen.
+
+> [!NOTE]
+> This matches the lsfg-vk build decky-lsfg-vk **0.10 to 0.12.x** uses. Plugin 0.14+ switched to lsfg-vk 2.0 and won't pick this layer up yet, so stay on 0.12.8 for now.
+
+Other ARM projects worth knowing about: [LSFG-Android](https://github.com/FrankBarretta/LSFG-Android) if you're on Android, and [lsfg-vk-aarch64](https://github.com/FrankBarretta/lsfg-vk-aarch64), an ARM64 build of the lsfg-vk 2.0 dev version aimed at Winlator/GameNative.
 
 ## What's fixed
 
-- Built for aarch64, matching the lsfg-vk version the Decky plugin uses (`fp16-test-2`), so it reads the same config.
+- Built for aarch64 from the same lsfg-vk version plugin 0.10-0.12.x uses (`fp16-test-2`), so it reads the same config.
 - The layer kept one global pointer to the next Vulkan layer. Wine creates a few Vulkan instances and devices from different places, the pointers got mixed up, MangoHud crashed inside Wine's explorer.exe and the game never started. It now tracks them per instance and device.
 - It doesn't load into Wine's own helper processes anymore, only the game.
 - Devices without a swapchain (compute stuff) just pass through instead of failing.
